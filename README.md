@@ -1,7 +1,7 @@
 # Genisys
 # VP-Tree DNA Read Matching
 
-**[▶ Live interactive demo](https://srujitha82.github.io/MolMorphic/)** – type a read with errors and watch the VP-tree find its match.
+**[▶ Live interactive demo](https://srujitha82.github.io/Genisys/)** – type a read with errors and watch the VP-tree find its match.
 
 Sequencing machines read DNA as millions of short reads, and every read contains errors (roughly 0.1 to 1% of bases are misread), so exact string matching fails to link a read to its true source. This project solves that with a **Vantage-Point Tree (VP-tree)**, a data structure for searching a metric space. Each DNA sequence is packed into a single integer (2 bits per base), and the distance between two sequences is their **Hamming distance**, the number of positions where they differ. Because Hamming distance obeys the triangle inequality, the tree can discard whole groups of reference sequences without ever comparing the read to them. Given a read, the system returns the k closest reference sequences or every sequence within a chosen number of mismatches, using far fewer distance computations than a linear scan. A brute-force baseline with a correctness checker verifies that the tree returns exactly the same results.
 

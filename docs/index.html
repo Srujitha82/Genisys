@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VP-Tree DNA Read Matching – interactive demo</title>
+<style>
+:root{--bg:#fff;--fg:#1f2328;--mut:#656d76;--bd:#d0d7de;--card:#f6f8fa;--vis:#0969da;--pru:#bf8700;--best:#1a7f37;--bad:#cf222e;--idle:#8c959f}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--fg:#e6edf3;--mut:#8b949e;--bd:#30363d;--card:#161b22;--vis:#58a6ff;--pru:#d29922;--best:#3fb950;--bad:#f85149;--idle:#6e7681}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:980px;margin-inline:auto}
+h1{font-size:22px;margin:0 0 4px}p.sub{margin:0 0 16px;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:14px}
+label{font-size:13px;color:var(--mut);margin-right:6px}
+input,select,button{font:inherit;padding:6px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg)}
+input{font-family:ui-monospace,Consolas,monospace;width:15ch;letter-spacing:1px;text-transform:uppercase}
+button{cursor:pointer}button:hover{border-color:var(--vis)}button.p{background:var(--vis);color:#fff;border-color:var(--vis)}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+#treewrap{overflow-x:auto}svg{display:block;min-width:640px}
+.e{stroke:var(--idle);stroke-width:1.5;fill:none}.e.pr{stroke:var(--pru);stroke-dasharray:4 3}
+.n circle{fill:var(--card);stroke:var(--idle);stroke-width:2}.n text{fill:var(--fg);font-size:12px;text-anchor:middle}
+.n.v circle{stroke:var(--vis);fill:var(--vis);fill-opacity:.2}.n.p circle{stroke:var(--pru);fill:var(--pru);fill-opacity:.2;stroke-dasharray:3 2}
+.n.b circle{stroke:var(--best);fill:var(--best);fill-opacity:.35}.n.c circle{stroke-width:4}
+.mu{fill:var(--mut)!important;font-size:10px!important}
+.lg span{margin-right:14px;font-size:13px;color:var(--mut)}.lg i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;border:2px solid}
+.mono{font:15px ui-monospace,Consolas,monospace;letter-spacing:2px;white-space:pre-wrap;word-break:break-all}
+.mm{background:var(--bad);color:#fff;border-radius:2px}
+.stat{display:flex;gap:24px;flex-wrap:wrap}.stat b{font-size:22px;display:block}.stat small{color:var(--mut)}
+#msg{min-height:48px}
+.hero{position:relative;height:160px;border-radius:10px;overflow:hidden;margin-bottom:14px;background:linear-gradient(120deg,#0b1f3a,#2b1055)}
+.hero canvas{position:absolute;inset:0;width:100%;height:100%}
+.hero .t{position:relative;padding:20px 22px;color:#fff;text-shadow:0 1px 8px #000}
+.hero h1{margin:0 0 4px;font-size:26px}.hero p{margin:0 0 10px;max-width:560px;color:#dbe4f0}
+.chips{display:flex;gap:6px}.chips .b{width:24px;height:24px;font-size:12px;text-shadow:none}
+.lad{display:flex;gap:5px;overflow-x:auto;padding:6px 4px}.col{display:flex;flex-direction:column;align-items:center;gap:2px}
+.b{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 13px ui-monospace,Consolas,monospace;color:#fff}
+.bA{background:#2da44e}.bC{background:#0969da}.bG{background:#bf8700}.bT{background:#cf222e}
+.bond{width:4px;height:22px;border-radius:2px;background:var(--best)}
+.bond.x{background:repeating-linear-gradient(var(--bad) 0 4px,transparent 4px 8px)}
+</style>
+</head>
+<body>
+<div class="hero">
+  <canvas id="helix"></canvas>
+  <div class="t">
+    <h1>VP-Tree DNA Read Matching</h1>
+    <p>Type a DNA read with sequencing errors and watch the tree find its closest reference while skipping most of the library.</p>
+    <div class="chips"><span class="b bA">A</span><span class="b bC">C</span><span class="b bG">G</span><span class="b bT">T</span></div>
+  </div>
+</div>
+
+<div class="card row">
+  <span><label for="q">Read (12 bases)</label><input id="q" maxlength="12" spellcheck="false"></span>
+  <span><label for="k">Neighbours k</label><select id="k"><option>1</option><option>2</option><option>3</option></select></span>
+  <button id="go" class="p">Run search</button>
+  <button id="ex">New example read</button>
+</div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:8px">
+    <button id="back">◀ Back</button><button id="step" class="p">Step ▶</button><button id="play">Play</button><button id="reset">Reset</button>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <div class="lg"><span><i style="border-color:var(--vis)"></i>compared</span><span><i style="border-color:var(--pru);border-style:dashed"></i>pruned (never compared)</span><span><i style="border-color:var(--best)"></i>current best</span><span><i style="border-color:var(--idle)"></i>not reached yet</span></div>
+  <div id="treewrap"></div>
+</div>
+
+<div class="card"><b>Read vs. compared reference</b><div id="aln" style="margin-top:6px"></div></div>
+
+<div class="card stat">
+  <div><b id="cmp">0</b><small>distance computations (VP-tree)</small></div>
+  <div><b id="bf">0</b><small>brute-force computations</small></div>
+  <div><b id="tau">∞</b><small>current radius τ</small></div>
+</div>
+
+<div class="card" style="font-size:14px">
+<b>How it works.</b> Each node is a <i>vantage point</i> with a radius μ (the median distance to the sequences below it). Sequences within μ go to the left (inside) branch, the rest to the right (outside). Distance is the number of mismatching bases (Hamming). If the read is at distance <i>d</i> from a vantage point and we already know a match within τ, the triangle inequality says the outside branch can be skipped when d + τ &lt; μ and the inside branch when d − τ &gt; μ. Skipped branches are the saving.
+</div>
+
+<script>
+const L=12,B="ACGT";let seed=11;
+const rnd=()=>(seed=(seed*1664525+1013904223)>>>0)/4294967296;
+const randSeq=()=>Array.from({length:L},()=>B[Math.floor(rnd()*4)]).join("");
+const mutate=(s,n)=>{s=s.split("");for(let i=0;i<n;i++){const p=Math.floor(rnd()*L);s[p]=B[(B.indexOf(s[p])+1+Math.floor(rnd()*3))%4]}return s.join("")};
+const ham=(a,b)=>{let d=0;for(let i=0;i<a.length;i++)if(a[i]!==b[i])d++;return d};
+
+// reference library: 3 families x 5 related sequences
+const lib=[],seen=new Set();
+for(let f=0;f<3;f++){const c=randSeq();for(let m=0;m<5;m++){let s=m?mutate(c,1+m%3):c;while(seen.has(s))s=mutate(c,2);seen.add(s);lib.push(s)}}
+
+function build(list){
+  if(!list.length)return null;
+  const vp=list[0],rest=list.slice(1);
+  if(!rest.length)return{vp,mu:0,in:null,out:null};
+  const ds=rest.map(s=>[ham(vp,s),s]).sort((a,b)=>a[0]-b[0]);
+  const mu=ds[Math.floor((ds.length-1)/2)][0];
+  return{vp,mu,in:build(ds.filter(x=>x[0]<=mu).map(x=>x[1])),out:build(ds.filter(x=>x[0]>mu).map(x=>x[1]))};
+}
+const root=build(lib),nodes=[];let maxDepth=0;
+(function lay(n,d){if(!n)return;lay(n.in,d+1);n.id=nodes.length;n.x=n.id;n.d=d;maxDepth=Math.max(maxDepth,d);nodes.push(n);lay(n.out,d+1)})(root,0);
+const desc=(n,o)=>{if(n){o.push(n.id);desc(n.in,o);desc(n.out,o)}return o};
+
+let ev=[],step=-1,timer=null,query="";
+function run(q,k){
+  ev=[];let best=[];
+  const tau=()=>best.length<k?Infinity:best[best.length-1][0];
+  (function go(n){
+    if(!n)return;
+    const d=ham(q,n.vp);
+    best.push([d,n.id]);best.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(best.length>k)best.pop();
+    ev.push({t:"v",id:n.id,d,tau:tau(),best:best.map(x=>x[1]),txt:`Compare the read with node #${n.id}: distance d = ${d}. Current radius τ = ${tau()===Infinity?"∞":tau()}.`});
+    const inFirst=d<=n.mu,a=inFirst?n.in:n.out,b=inFirst?n.out:n.in;
+    go(a);
+    const T=tau(),ok=inFirst?d+T>=n.mu:d-T<=n.mu;
+    if(b){
+      if(ok)go(b);
+      else ev.push({t:"p",id:n.id,ids:desc(b,[]),txt:inFirst?`Skip the outside branch of #${n.id}: d + τ = ${d} + ${T} = ${d+T} < μ = ${n.mu}, so nothing there can beat the current best.`:`Skip the inside branch of #${n.id}: d − τ = ${d} − ${T} = ${d-T} > μ = ${n.mu}, so nothing there can beat the current best.`});
+    }
+  })(root);
+}
+
+function paint(){
+  const cur=ev[step],vis=new Set(),pru=new Set();let last=null,lastV=null,cnt=0;
+  for(let i=0;i<=step;i++){const e=ev[i];if(e.t==="v"){vis.add(e.id);last=e;cnt++}else e.ids.forEach(x=>pru.add(x))}
+  const best=new Set(last?last.best:[]),W=60+nodes.length*44,H=50+maxDepth*64;
+  let s=`<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+  const X=n=>30+n.x*44,Y=n=>26+n.d*64;
+  nodes.forEach(n=>[n.in,n.out].forEach((c,i)=>{if(c)s+=`<line class="e${pru.has(c.id)?" pr":""}" x1="${X(n)}" y1="${Y(n)}" x2="${X(c)}" y2="${Y(c)}"/><text x="${(X(n)+X(c))/2}" y="${(Y(n)+Y(c))/2-3}" class="mu" style="font-size:10px" text-anchor="middle" fill="currentColor">${i?">μ":"≤μ"}</text>`}));
+  nodes.forEach(n=>{
+    const c=["n"];if(pru.has(n.id))c.push("p");else if(best.has(n.id))c.push("b");else if(vis.has(n.id))c.push("v");
+    if(cur&&cur.t==="v"&&cur.id===n.id)c.push("c");
+    s+=`<g class="${c.join(" ")}"><title>#${n.id} ${n.vp} (μ=${n.mu})</title><circle cx="${X(n)}" cy="${Y(n)}" r="14"/><text x="${X(n)}" y="${Y(n)+4}">${n.id}</text><text class="mu" x="${X(n)}" y="${Y(n)+27}">μ=${n.mu}</text></g>`;
+  });
+  document.getElementById("treewrap").innerHTML=s+"</svg>";
+  document.getElementById("cmp").textContent=cnt;
+  document.getElementById("bf").textContent=nodes.length*(step>=0?1:0);
+  document.getElementById("tau").textContent=last?(last.tau===Infinity?"∞":last.tau):"∞";
+  let msg=step<0?`Press <b>Step</b> or <b>Play</b>. The library has ${nodes.length} references; brute force would compare the read with all of them.`:cur.txt;
+  if(step===ev.length-1){const b=last.best.map(id=>`#${id} (${ham(query,nodes[id].vp)})`).join(", ");const sk=nodes.length-cnt;msg+=`<br><b>Done.</b> Closest: ${b}. The tree computed ${cnt} distances instead of ${nodes.length}${sk?`, skipping ${sk} references without ever comparing them`:""}.`}
+  document.getElementById("msg").innerHTML=msg;
+  const a=document.getElementById("aln");
+  if(lastV=last){const r=nodes[last.id].vp;
+    const bx=(c,m)=>`<div class="b b${c}"${m?' style="outline:3px solid var(--bad);outline-offset:2px"':""}>${c}</div>`;
+    a.innerHTML=`<div class="lad">${[...query].map((c,i)=>{const m=c!==r[i];return`<div class="col">${bx(c,m)}<div class="bond${m?" x":""}"></div>${bx(r[i],m)}</div>`}).join("")}</div><div style="margin-top:6px;color:var(--mut)">top: your read · bottom: node #${last.id} · ${last.d} mismatch${last.d===1?"":"es"} (broken red bonds)</div>`}
+  else a.textContent="(nothing compared yet)";
+}
+
+function start(){
+  const q=document.getElementById("q").value.toUpperCase().trim();
+  if(!/^[ACGT]{12}$/.test(q)){document.getElementById("msg").innerHTML="<b>The read must be exactly 12 letters using only A, C, G, T.</b>";return}
+  stop();query=q;run(q,+document.getElementById("k").value);step=-1;paint();
+}
+function stop(){clearInterval(timer);timer=null;document.getElementById("play").textContent="Play"}
+function example(){const r=lib[Math.floor(rnd()*lib.length)];document.getElementById("q").value=mutate(r,1+Math.floor(rnd()*2));start()}
+document.getElementById("go").onclick=start;
+document.getElementById("ex").onclick=example;
+document.getElementById("step").onclick=()=>{if(step<ev.length-1){step++;paint()}else stop()};
+document.getElementById("back").onclick=()=>{stop();if(step>-1){step--;paint()}};
+document.getElementById("reset").onclick=()=>{stop();step=-1;paint()};
+document.getElementById("play").onclick=()=>{
+  if(timer)return stop();
+  if(step>=ev.length-1)step=-1;
+  document.getElementById("play").textContent="Pause";
+  timer=setInterval(()=>{if(step<ev.length-1){step++;paint()}else stop()},900);
+};
+(function(){
+  const c=document.getElementById("helix"),x=c.getContext("2d"),col=["#2da44e","#0969da","#bf8700","#cf222e"];
+  const still=matchMedia("(prefers-reduced-motion:reduce)").matches;let t=0;
+  function fit(){const r=c.getBoundingClientRect(),d=devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;x.setTransform(d,0,0,d,0,0)}
+  function draw(){
+    const w=c.clientWidth,h=c.clientHeight;x.clearRect(0,0,w,h);
+    for(let px=8;px<w;px+=14){
+      const a=px*0.035+t,s=Math.sin(a),k=Math.floor(px/14)%4,y1=h/2+s*h*0.36,y2=h/2-s*h*0.36;
+      x.globalAlpha=.3+.3*Math.abs(s);x.strokeStyle=col[k];x.lineWidth=2;x.beginPath();x.moveTo(px,y1);x.lineTo(px,y2);x.stroke();
+      x.globalAlpha=1;x.fillStyle=col[k];x.beginPath();x.arc(px,y1,4+Math.cos(a)*1.5,0,7);x.fill();
+      x.fillStyle=col[3-k];x.beginPath();x.arc(px,y2,4-Math.cos(a)*1.5,0,7);x.fill();
+    }
+    t+=0.03;if(!still)requestAnimationFrame(draw);
+  }
+  fit();addEventListener("resize",()=>{fit();if(still)draw()});draw();
+})();
+example();
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 
 **[▶ Live interactive demo](https://srujitha82.github.io/Genisys/)** – type a read with errors and watch the VP-tree find its match.
 
-Sequencing machines read DNA as millions of short reads, and every read contains errors (roughly 0.1 to 1% of bases are misread), so exact string matching fails to link a read to its true source. This project solves that with a **Vantage-Point Tree (VP-tree)**, a data structure for searching a metric space. Each DNA sequence is packed into a single integer (2 bits per base), and the distance between two sequences is their **Hamming distance**, the number of positions where they differ. Because Hamming distance obeys the triangle inequality, the tree can discard whole groups of reference sequences without ever comparing the read to them. Given a read, the system returns the k closest reference sequences or every sequence within a chosen number of mismatches, using far fewer distance computations than a linear scan. A brute-force baseline with a correctness checker verifies that the tree returns exactly the same results.
+Sequencing machines read DNA as millions of short reads, and every read contains errors (roughly 0.1 to 1% of bases are misread), so exact string matching fails to link a read to its true source. This project solves that with a **Vantage-Point Tree (VP-tree)**, a data structure for searching a metric space. Each DNA sequence is packed into a single integer (2 bits per base), and the distance between two sequences is their **Hamming distance**, the number of positions where they differ. Because Hamming distance obeys the triangle inequality, the tree can discard whole groups of reference sequences without ever comparing the read to them. Given a read, the system returns the k closest reference sequences or every sequence within a chosen number of mismatches, and for the best match or a small mismatch radius it needs many times fewer distance computations than a linear scan. A brute-force baseline with a correctness checker verifies that the tree returns exactly the same results.
 
 ## Contents
 
@@ -107,7 +107,9 @@ Random DNA sequences differ in about 75% of positions, so pruning works well onl
 ├── data/
 │   └── sample_reference.csv   # 100 sequences, length 32
 ├── make_sample_data.py
-├── brute_demo.py
+├── brute_demo.py        # CLI: brute-force nearest sequences
+├── vptree_demo.py       # CLI: VP-tree search + distance counter
+├── benchmark.py         # VP-tree vs brute force
 ├── requirements.txt
 └── README.md
 ```
@@ -138,6 +140,21 @@ distance 5   ref_066    TGCGACAGTGACGCTTTCGCCGTTGCCTAAAC
 distance 7   ref_045    TGCGACAGTGAGGCTTTGGCCGTTGCCTAATC
 distance 7   ref_092    TGCGGCAGTCACGCTTTCGCCGTTGCCTAATC
 distance 17  ref_034    AAGCACAATAAACCTCTCTGACTGGCCGAATA
+```
+
+### Command line (VP-tree)
+
+```bash
+python vptree_demo.py TCCGACAGTTATGCTTTCGCGTTTGCCTAAAC --k 3
+python vptree_demo.py TCCGACAGTTATGCTTTCGCGTTTGCCTAAAC --radius 4
+```
+
+The output ends with the number of distances the tree computed compared with brute force.
+
+### Benchmark
+
+```bash
+python benchmark.py --out results.md
 ```
 
 ### From Python
@@ -199,15 +216,21 @@ The tree must provide `tree.knn(query, k)` and `tree.range_search(query, r)`, ea
 
 ## Results
 
-Benchmarks compare the VP-tree with brute force on synthetic clustered DNA libraries (length 32), using reads with 0 to 3 simulated sequencing errors and k = 5, averaged over 100 queries.
+Benchmarks (`python benchmark.py`) compare the VP-tree with brute force on synthetic clustered DNA libraries (length 32). Reads have 0 to 3 simulated sequencing errors, and the figures are averaged over 100 queries. Every answer checked was identical to brute force.
 
-| Library size N | Brute-force distances / query | VP-tree distances / query | Reduction |
-|---|---|---|---|
-| 1,000 | 1,000 | _fill in_ | _fill in_ |
-| 10,000 | 10,000 | _fill in_ | _fill in_ |
-| 100,000 | 100,000 | _fill in_ | _fill in_ |
+| Library size N | Search | Brute-force distances | VP-tree distances (avg) | Reduction |
+|---|---|---|---|---|
+| 1,000 | best match (k=1) | 1,000 | 209 | 4.8x |
+| 1,000 | range r=2 | 1,000 | 228 | 4.4x |
+| 1,000 | k=5 | 1,000 | 687 | 1.5x |
+| 10,000 | best match (k=1) | 10,000 | 1,750 | 5.7x |
+| 10,000 | range r=2 | 10,000 | 1,239 | 8.1x |
+| 10,000 | k=5 | 10,000 | 7,192 | 1.4x |
+| 100,000 | best match (k=1) | 100,000 | 10,244 | 9.8x |
+| 100,000 | range r=2 | 100,000 | 6,604 | 15.1x |
+| 100,000 | k=5 | 100,000 | 64,383 | 1.6x |
 
-Both methods returned identical results on all test queries (verified with `check_correctness`). The reduction shrinks as the search radius grows, which matches the theory: pruning works only when τ is small compared with μ.
+The saving grows with library size for the best match and for small-radius searches, which is the main use case. Asking for k=5 prunes much less on this data: the fifth-nearest sequence is far from the read, so the search radius τ stays large and few subtrees can be skipped. In pure Python that case can even be slower than brute force, because the tree has extra bookkeeping. This matches the theory: pruning works only when τ is small compared with the median distance μ.
 
 ## Edge cases handled
 
@@ -223,7 +246,7 @@ Both methods returned identical results on all test queries (verified with `chec
 |---|---|---|
 | Member 1 | [@Srujitha82](https://github.com/Srujitha82) | DNA encoding and Hamming distance, CSV and FASTA loaders, read simulator, brute-force baseline, correctness checker, unit tests, interactive visual demo |
 | Member 2 | [@yasaswinimattaparthi26](https://github.com/yasaswinimattaparthi26) | VP-tree construction, vantage point selection, leaf buckets |
-| Member 3 | [@username](https://github.com/jaladhi1926) | kNN and range search, benchmarks, CLI demo |
+| Member 3 | [@jaladhi1926](https://github.com/jaladhi1926) | kNN and range search, benchmarks, CLI demo |
 
 Each member committed from their own GitHub account; see the commit history and **Insights → Contributors**.
 

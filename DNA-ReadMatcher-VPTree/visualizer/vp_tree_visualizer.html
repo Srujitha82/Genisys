@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VP tree DNA read matcher - visualizer</title>
+<style>
+:root{color-scheme:light;--paper:#EEF3F6;--ink:#12303B;--mute:#5d7480;--line:#cfdbe1;--A:#E0574F;--C:#2F7DBE;--G:#E5A83B;--T:#3E9B6B;--hit:#1c9a6b;--in:#2F7DBE;--out:#d98a1f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif}
+main{max-width:1200px;margin:0 auto;padding:18px}
+h1{font-size:28px;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 8px}
+p{margin:0 0 8px;max-width:75ch}
+.box{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px}
+#helix{width:100%;height:100px;display:block}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:14px 0}
+label{display:flex;flex-direction:column;font-size:14px;color:var(--mute);gap:2px}
+input,select,textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;color:var(--ink);background:#fff}
+#q{font-family:ui-monospace,Consolas,monospace;letter-spacing:2px;width:190px;text-transform:uppercase}
+#val{width:70px}
+button{font:inherit;padding:7px 14px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+button.alt{background:#fff;color:var(--ink)}
+:focus-visible{outline:3px solid var(--C);outline-offset:2px}
+.grid{display:grid;grid-template-columns:minmax(250px,320px) 1fr;gap:16px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+#reads{max-height:430px;overflow:auto;padding:0;margin:0;list-style:none}
+#reads li{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:6px;font-size:14px}
+#reads li.hit{background:#d8f1e6}
+#reads li.pr{opacity:.4}
+#reads .n{width:26px;color:var(--mute)}
+.seq{display:flex;gap:2px;flex:1}
+.b{width:19px;height:22px;border-radius:4px;color:#fff;font:700 13px/22px ui-monospace,Consolas,monospace;text-align:center}
+.bA{background:var(--A)}.bC{background:var(--C)}.bG{background:var(--G)}.bT{background:var(--T)}
+.tag{font-size:12px;color:var(--mute);min-width:56px;text-align:right}
+#treewrap{overflow:auto}
+svg text{font-family:inherit}
+#log{margin:8px 0 0;padding-left:20px;max-height:190px;overflow:auto;font-size:14px}
+#log li.cur{font-weight:700}
+.legend{font-size:13px;color:var(--mute);display:flex;gap:14px;flex-wrap:wrap}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:4px}
+#stat{font-weight:700;margin:6px 0}
+#err{color:#b3261e;font-size:14px;min-height:20px}
+details{margin-top:10px}
+textarea{width:100%;height:120px;font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+<main>
+<h1>How a VP tree finds a DNA read</h1>
+<p>Every node picks one read as its vantage point and splits the other reads by their distance to it: close ones go left, far ones go right. A search skips any branch the triangle inequality proves is too far away.</p>
+<div class="box"><svg id="helix" viewBox="0 0 800 100" role="img" aria-label="Double helix built from the query read"></svg></div>
+
+<div class="bar">
+<label>Query read<input id="q" value="ACGTACGG" maxlength="16" spellcheck="false"></label>
+<label>Search type<select id="mode"><option value="range">Range (all within r)</option><option value="knn">k nearest</option></select></label>
+<label><span id="vlabel">Radius r</span><input id="val" type="number" min="0" max="12" value="2"></label>
+<label>Distance<select id="metric"><option value="lev">Edit distance</option><option value="ham">Hamming</option></select></label>
+<button id="step">Step</button>
+<button id="play" class="alt">Play</button>
+<button id="reset" class="alt">Reset</button>
+</div>
+<div id="err"></div>
+
+<div class="grid">
+<section class="box">
+<h2>Reads in the database</h2>
+<ul id="reads"></ul>
+<details><summary>Edit the reads</summary>
+<p>One read per line, letters A C G T only, up to 24 reads.</p>
+<textarea id="ta" aria-label="Reads, one per line"></textarea>
+<button id="apply" class="alt">Rebuild tree</button></details>
+</section>
+<section class="box">
+<h2>The tree</h2>
+<div class="legend"><span><i style="background:var(--in)"></i>left: distance ≤ μ</span><span><i style="background:var(--out)"></i>right: distance ≥ μ</span><span>faded = skipped without computing</span><span>green = result</span></div>
+<div id="treewrap"><svg id="tree" role="img" aria-label="Vantage point tree"></svg></div>
+<div id="stat"></div>
+<ol id="log"></ol>
+</section>
+</div>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const DEF="ACGTACGT\nACGTACGA\nACGTTCGT\nACCTACGT\nAGGTACGT\nTTGACCGA\nTTGACCGT\nTTCACCGA\nTAGACCGA\nTTGACGGA\nGGCATTAC\nGGCATTAA\nGCCATTAC\nGGCTTTAC\nGGGATTAC";
+const COL={A:'#E0574F',C:'#2F7DBE',G:'#E5A83B',T:'#3E9B6B'},COMP={A:'T',T:'A',C:'G',G:'C'};
+let reads=[],nodes=[],nodeOf=[],steps=[],res=[],pos=0,root=-1,q="",timer=null,phase=0;
+
+function lev(a,b){const m=a.length,n=b.length;let p=Array.from({length:n+1},(_,j)=>j);for(let i=1;i<=m;i++){const c=[i];for(let j=1;j<=n;j++)c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=c}return p[n]}
+function ham(a,b){let d=Math.abs(a.length-b.length);for(let i=0;i<Math.min(a.length,b.length);i++)if(a[i]!==b[i])d++;return d}
+const dist=(a,b)=>$('#metric').value==='ham'?ham(a,b):lev(a,b);
+const fmt=t=>t>=1e9?'∞':t;
+
+function buildTree(){
+  nodes=[];nodeOf=[];let s=7;
+  const rnd=()=>{s=(s+0x6D2B79F5)|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+  const b=(ids,depth)=>{
+    if(!ids.length)return -1;
+    const id=nodes.length,n={id,vp:0,mu:0,l:-1,r:-1,depth,x:0};nodes.push(n);
+    const vi=Math.floor(rnd()*ids.length),vp=ids[vi];n.vp=vp;nodeOf[vp]=id;
+    const rest=ids.filter((_,i)=>i!==vi);
+    if(rest.length){
+      const d=rest.map(i=>[dist(reads[vp],reads[i]),i]).sort((x,y)=>x[0]-y[0]||x[1]-y[1]);
+      const mid=d.length>>1;n.mu=d[mid][0];
+      n.l=b(d.slice(0,mid).map(x=>x[1]),depth+1);
+      n.r=b(d.slice(mid).map(x=>x[1]),depth+1);
+    }
+    return id;
+  };
+  root=b(reads.map((_,i)=>i),0);
+  let c=0;const io=id=>{if(id<0)return;io(nodes[id].l);nodes[id].x=c++;io(nodes[id].r)};io(root);
+}
+
+function plan(){
+  steps=[];res=[];pos=0;
+  const mode=$('#mode').value,val=Math.max(0,parseInt($('#val').value)||0),k=Math.max(1,val);
+  let tau=mode==='range'?val:1e9,calls=0;
+  const sub=id=>id<0?[]:[id,...sub(nodes[id].l),...sub(nodes[id].r)];
+  const rec=id=>{
+    if(id<0)return;
+    const n=nodes[id],d=dist(q,reads[n.vp]);calls++;
+    let msg=`Compare with read #${n.vp+1}: distance ${d}. `,hit=false;
+    if(mode==='range'){
+      if(d<=tau){res.push([d,n.vp]);hit=true;msg+=`${d} ≤ ${tau}, so it is a match.`}
+      else msg+=`${d} > ${tau}, not a match.`;
+    }else{
+      res.push([d,n.vp]);res.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);if(res.length>k)res.pop();
+      tau=res.length<k?1e9:res[k-1][0];
+      msg+=`Best ${k} so far need distance ≤ ${fmt(tau)}.`;
+    }
+    steps.push({k:'v',id,d,calls,hit,msg});
+    if(n.l<0&&n.r<0)return;
+    const near=d<=n.mu?'l':'r',far=near==='l'?'r':'l';
+    rec(n[near]);
+    const ok=far==='r'?d+tau>=n.mu:d-tau<=n.mu;
+    if(n[far]>=0){
+      if(ok)rec(n[far]);
+      else steps.push({k:'p',id:n[far],ids:sub(n[far]),calls,msg:far==='r'
+        ?`Skip the outside branch: d + τ = ${d} + ${fmt(tau)} < μ = ${n.mu}, so every read there is too far.`
+        :`Skip the inside branch: d − τ = ${d} − ${fmt(tau)} > μ = ${n.mu}, so every read there is too far.`});
+    }
+  };
+  rec(root);
+  res.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  steps.push({k:'e',calls,msg:`Done: ${res.length} result(s) using ${calls} distance computations. Brute force would need ${reads.length}.`});
+}
+
+function state(){
+  const vis=new Map(),pr=new Set(),hits=new Set();let cur=-1,calls=0;
+  for(let i=0;i<pos;i++){const s=steps[i];calls=s.calls;
+    if(s.k==='v'){vis.set(s.id,s.d);cur=s.id;if(s.hit)hits.add(nodes[s.id].vp)}
+    else if(s.k==='p')s.ids.forEach(x=>pr.add(x));}
+  const done=pos===steps.length;
+  if(done)res.forEach(r=>hits.add(r[1]));
+  return{vis,pr,hits,cur,calls,done};
+}
+
+function tiles(s){return[...s].map(c=>`<span class="b b${c}">${c}</span>`).join('')}
+
+function render(){
+  const st=state();
+  $('#reads').innerHTML=reads.map((r,i)=>{
+    const id=nodeOf[i],tag=st.vis.has(id)?`d = ${st.vis.get(id)}`:st.pr.has(id)?'skipped':'';
+    return`<li class="${st.hits.has(i)?'hit':''} ${st.pr.has(id)?'pr':''}"><span class="n">#${i+1}</span><span class="seq">${tiles(r)}</span><span class="tag">${tag}</span></li>`}).join('');
+  const X=n=>30+n.x*46,Y=n=>34+n.depth*74,W=60+nodes.length*46,H=70+Math.max(...nodes.map(n=>n.depth))*74;
+  let g='';
+  nodes.forEach(n=>[['l','#2F7DBE'],['r','#d98a1f']].forEach(([s,c])=>{const m=nodes[n[s]];
+    if(m)g+=`<line x1="${X(n)}" y1="${Y(n)}" x2="${X(m)}" y2="${Y(m)}" stroke="${c}" stroke-width="2.5" opacity="${st.pr.has(m.id)?.25:1}"/>`}));
+  nodes.forEach(n=>{
+    const v=st.vis.has(n.id),h=st.hits.has(n.vp),p=st.pr.has(n.id),c=n.id===st.cur&&!st.done;
+    g+=`<g opacity="${p?.3:1}"><circle cx="${X(n)}" cy="${Y(n)}" r="18" fill="${h?'#bfe9d5':v?'#dbe9f3':'#fff'}" stroke="${h?'#1c9a6b':'#12303B'}" stroke-width="${c?4:1.5}"/>
+    <text x="${X(n)}" y="${Y(n)+5}" text-anchor="middle" font-size="14" font-weight="700" fill="#12303B">${n.vp+1}</text>`;
+    if(n.l>=0||n.r>=0)g+=`<text x="${X(n)}" y="${Y(n)+34}" text-anchor="middle" font-size="12" fill="#5d7480">μ=${n.mu}</text>`;
+    if(v)g+=`<text x="${X(n)+20}" y="${Y(n)-14}" font-size="12" font-weight="700" fill="#12303B">d=${st.vis.get(n.id)}</text>`;
+    g+='</g>';
+  });
+  const t=$('#tree');t.setAttribute('viewBox',`0 0 ${W} ${H}`);t.setAttribute('width',Math.max(W,320));t.setAttribute('height',H);t.innerHTML=g;
+  $('#stat').textContent=`Distance computations: ${st.calls} of ${reads.length} (brute force)`;
+  $('#log').innerHTML=pos?steps.slice(0,pos).map((s,i)=>`<li class="${i===pos-1?'cur':''}">${s.msg}</li>`).join(''):'<li>Press Step to compute one distance at a time, or Play to watch the whole search.</li>';
+  if(st.done)$('#log').innerHTML+=`<li class="cur">Results: ${res.length?res.map(r=>`#${r[1]+1} (d=${r[0]})`).join(', '):'none'}</li>`;
+  $('#log').scrollTop=1e6;
+  $('#step').disabled=st.done;
+}
+
+function helix(){
+  const N=q.length||1,gap=N>1?720/(N-1):0,svg=$('#helix'),f=x=>(gap?(x-40)/gap*0.75:0)+phase;
+  let a='',b='',rungs='',dots='';
+  for(let x=40;x<=760;x+=8){a+=`${x},${50+30*Math.sin(f(x))} `;b+=`${x},${50-30*Math.sin(f(x))} `}
+  [...q].forEach((c,i)=>{const x=N>1?40+i*gap:400,y=30*Math.sin(f(x));
+    rungs+=`<line x1="${x}" y1="${50+y}" x2="${x}" y2="${50-y}" stroke="#cfdbe1" stroke-width="3"/>`;
+    dots+=`<circle cx="${x}" cy="${50+y}" r="9" fill="${COL[c]}"/><text x="${x}" y="${55+y}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${c}</text>`+
+          `<circle cx="${x}" cy="${50-y}" r="9" fill="${COL[COMP[c]]}" opacity=".55"/><text x="${x}" y="${55-y}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">${COMP[c]}</text>`});
+  svg.innerHTML=`<polyline points="${a}" fill="none" stroke="#12303B" stroke-width="2"/><polyline points="${b}" fill="none" stroke="#12303B" stroke-width="2"/>${rungs}${dots}`;
+}
+
+function setQuery(){
+  q=$('#q').value.toUpperCase().replace(/\s/g,'');
+  if(!/^[ACGT]{1,16}$/.test(q)){$('#err').textContent='The query must be 1 to 16 letters from A, C, G, T.';return false}
+  $('#err').textContent='';return true;
+}
+function restart(rebuild){
+  stop();
+  if(rebuild)buildTree();
+  if(!setQuery())return;
+  $('#vlabel').textContent=$('#mode').value==='range'?'Radius r':'k';
+  plan();render();helix();
+}
+function stop(){if(timer){clearInterval(timer);timer=null}$('#play').textContent='Play'}
+function applyReads(){
+  const l=$('#ta').value.toUpperCase().split('\n').map(s=>s.trim()).filter(s=>/^[ACGT]{1,16}$/.test(s)).slice(0,24);
+  if(!l.length){$('#err').textContent='Add at least one valid read.';return}
+  reads=l;restart(true);
+}
+$('#step').onclick=()=>{if(pos<steps.length){pos++;render()}};
+$('#play').onclick=()=>{
+  if(timer){stop();return}
+  if(pos>=steps.length){pos=0;render()}
+  $('#play').textContent='Pause';
+  timer=setInterval(()=>{if(pos<steps.length){pos++;render()}else stop()},900);
+};
+$('#reset').onclick=()=>{stop();pos=0;render()};
+$('#apply').onclick=applyReads;
+['#q','#mode','#val'].forEach(s=>$(s).addEventListener('input',()=>restart(false)));
+$('#metric').addEventListener('change',()=>restart(true));
+$('#ta').value=DEF;reads=DEF.split('\n');
+restart(true);
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches)setInterval(()=>{phase+=0.05;helix()},60);
+</script>
+</body>
+</html>
